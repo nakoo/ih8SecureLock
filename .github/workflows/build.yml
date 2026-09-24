@@ -1,0 +1,51 @@
+name: Build Module
+
+on:
+  push:
+    branches: [ next ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ next ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+
+      - name: Build native binaries
+        run: |
+          ndk-build -C zygisk
+
+      - name: Package module zip
+        run: |
+          mkdir -p package/zygisk
+          cp -r module/* package/
+          cp zygisk/libs/arm64-v8a/libih8SecureLock.so package/zygisk/arm64-v8a.so
+          cp zygisk/libs/armeabi-v7a/libih8SecureLock.so package/zygisk/armeabi-v7a.so
+          cp zygisk/libs/x86/libih8SecureLock.so package/zygisk/x86.so
+          cp zygisk/libs/x86_64/libih8SecureLock.so package/zygisk/x86_64.so
+          cd package
+          zip -r9 ../ih8SecureLock.zip ./*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ih8SecureLock
+          path: package/
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: ih8SecureLock.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
