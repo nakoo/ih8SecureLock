@@ -123,12 +123,23 @@ class ih8SecureLock : public zygisk::ModuleBase {
         this->env = env;
     }
 
+    void preAppSpecialize(zygisk::AppSpecializeArgs* args) override {
+        (void)args;
+        if (api->getFlags() & zygisk::StateFlag::PROCESS_ON_DENYLIST) {
+            api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
+        }
+    }
+
     void preServerSpecialize(zygisk::ServerSpecializeArgs* args) override {
         (void)args;
         api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
     }
 
     void postAppSpecialize(const zygisk::AppSpecializeArgs* args) override {
+        if (api->getFlags() & zygisk::StateFlag::PROCESS_ON_DENYLIST) {
+            return;
+        }
+
         PROC_NAME = env->GetStringUTFChars(args->nice_name, nullptr);
         if (!run(api, env)) {
             api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
