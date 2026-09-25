@@ -1,6 +1,6 @@
 #include <android/log.h>
 #include <jni.h>
-#include <string.h>
+#include <string>
 
 #include "binder.hpp"
 #include "zygisk.hpp"
@@ -23,6 +23,7 @@ static uint32_t relayout2_code = 0;
 static uint32_t relayoutAsync2_code = 0;
 static uint32_t registerScreenCaptureObserver_code = 0;
 
+static std::string s_proc_name;
 static const char* PROC_NAME = "";
 
 static bool getTransactionCodes(JNIEnv* env) {
@@ -49,6 +50,13 @@ static bool getTransactionCodes(JNIEnv* env) {
 int (*transactOrig)(void*, int32_t, uint32_t, void*, void*, uint32_t);
 
 int transactHook(void* self, int32_t handle, uint32_t code, void* pdata, void* preply, uint32_t flags) {
+    if (likely(!code || (code != relayout_code && code != relayoutAsync_code &&
+               code != relayout2_code && code != relayoutAsync2_code &&
+               code != registerScreenCaptureObserver_code))) {
+        return transactOrig(self, handle, code, pdata, preply, flags);
+    }
+    if (unlikely(!pdata)) return transactOrig(self, handle, code, pdata, preply, flags);
+
     auto pparcel = (PParcel*)pdata;
     auto parcel = FakeParcel(pparcel->data, pparcel->data_size);
 
@@ -72,11 +80,11 @@ int transactHook(void* self, int32_t handle, uint32_t code, void* pdata, void* p
         parcel.skip(4 * sizeof(uint32_t));                 // LayoutParams
         parcel.skip(3 * sizeof(uint32_t));                 // requestedWidth, requestedHeight, viewVisibility
 
-        auto flags = parcel.peekInt32Ref();
-        if (flags == nullptr) {
+        auto winFlags = parcel.peekInt32Ref();
+        if (winFlags == nullptr) {
             LOGD("ERROR: flags == NULL");
-        } else if (*flags & FLAG_SECURE) {
-            *flags &= ~FLAG_SECURE;
+        } else if (*winFlags & FLAG_SECURE) {
+            *winFlags &= ~FLAG_SECURE;
             LOGD("Bypassed secure lock");
         }
     } else if (code == registerScreenCaptureObserver_code &&
@@ -140,10 +148,20 @@ class ih8SecureLock : public zygisk::ModuleBase {
             return;
         }
 
-        PROC_NAME = env->GetStringUTFChars(args->nice_name, nullptr);
+        if (!args->nice_name) {
+            api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
+            return;
+        }
+
+        const char* proc_name = env->GetStringUTFChars(args->nice_name, nullptr);
+        if (proc_name) {
+            s_proc_name = proc_name;
+            PROC_NAME = s_proc_name.c_str();
+            env->ReleaseStringUTFChars(args->nice_name, proc_name);
+        }
+
         if (!run(api, env)) {
             api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
-            env->ReleaseStringUTFChars(args->nice_name, PROC_NAME);
         } else {
             LOGD("Loaded");
         }
